@@ -1,20 +1,7 @@
-var i = 1;
-var map = L.map("map");
-navigator.geolocation.watchPosition(success, error);
-function success(pos) {
-  const user_lat = pos.coords.latitude;
-  const user_lng = pos.coords.longitude;
-  const location_accuracy = pos.coords.accuracy;
-  L.marker([user_lat, user_lng]).addTo(map);
-  L.circle([user_lat, user_lng], { radius: accuracy }).addTo(map);
-  console.log("accuracy=", location_accuracy);
-}
-function error(err) {
-  console.log("error", err.code);
-  console.log("error message", err.message);
-}
-
+let user_location = null;
 let markers = [];
+let user_marker, user_circle;
+var map = L.map("map");
 
 map.setView([27.697883, 85.320194], 13);
 
@@ -24,9 +11,57 @@ L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
 }).addTo(map);
 
-map.on("contextmenu", function () {
-  console.log("Right clicked!");
-});
+navigator.geolocation.watchPosition(success, error);
+
+function success(pos) {
+  const user_lat = pos.coords.latitude;
+  const user_lng = pos.coords.longitude;
+  const location_accuracy = pos.coords.accuracy;
+  user_location = [user_lat, user_lng];
+  if (user_marker) {
+    a = map.removeLayer(user_marker);
+    b = map.removeLayer(user_circle);
+  }
+  user_marker = L.marker([user_lat, user_lng]).addTo(map);
+  user_circle = L.circle([user_lat, user_lng], {
+    radius: location_accuracy,
+  }).addTo(map);
+  console.log("User location =", user_location);
+  console.log("Accuracy =", location_accuracy);
+}
+
+function error(err) {
+  console.log("error", err.code);
+  console.log("error message", err.message);
+}
+
+let routing_control = L.Routing.control({
+  waypoints: [],
+
+  createMarker: function () {
+    return null;
+  },
+}).addTo(map);
+
+function update_route() {
+  // Don't create route if GPS location isn't available
+  if (user_location === null) {
+    console.log("User location not available yet");
+    return;
+  }
+
+  const waypoints = [
+    L.latLng(user_location[0], user_location[1]),
+
+    ...markers.map(function (position) {
+      return L.latLng(position[0], position[1]);
+    }),
+  ];
+
+  routing_control.setWaypoints(waypoints);
+
+  console.log("Waypoints =", waypoints);
+}
 
 map.on("contextmenu", function (e) {
   const lat = e.latlng.lat;
@@ -36,45 +71,54 @@ map.on("contextmenu", function (e) {
     .setLatLng(e.latlng)
     .setContent(
       `
-        <button id="set_pickup">
-        Set Pickup Location</button>
-     `,
+      <button id="set_pickup">
+        Set Pickup Location
+      </button>
+    `,
     )
     .openOn(map);
+
   document.getElementById("set_pickup").addEventListener("click", function () {
     set_marker(lat, lng);
   });
 });
 
 function set_marker(lat, lng) {
-  markers.push([lat, lng]);
-  const marker = L.marker([lat, lng]).addTo(map);
+  const marker_position = [lat, lng];
+
+  markers.push(marker_position);
+
+  const marker = L.marker(marker_position).addTo(map);
 
   map.closePopup();
+
   marker.bindPopup(`
-    <button id="remove_location"> Remove Marker </button>
-    `);
+    <button id="remove_location">
+      Remove Marker
+    </button>
+  `);
+
   marker.on("popupopen", function (event) {
     const markerpopup = event.popup.getElement();
+
     markerpopup
       .querySelector("#remove_location")
       .addEventListener("click", function () {
-        console.log("locationremoved=", event.popup);
+        const index = markers.indexOf(marker_position);
+
+        if (index !== -1) {
+          markers.splice(index, 1);
+        }
+
         map.removeLayer(marker);
+
+        map.closePopup();
+
+        update_route();
       });
   });
-  let waypoints = markers;
-  console.log(markers);
-  // if (waypoints.lenght < 2) {
-  L.Routing.control(
-    { waypoints: waypoints },
-    {
-      createMarker: function () {
-        return null;
-      },
-    },
-  ).addTo(map);
-  // }
-}
 
-let waypoints = 0;
+  update_route();
+
+  console.log("markers =", markers);
+}
